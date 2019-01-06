@@ -1,0 +1,24 @@
+{
+    "FileVersion" : 3,
+    "Version" : 1,
+    "VersionName" : "0.0.1",
+	"FriendlyName" : "ArcticAnalytics",
+	"Description" : "ArcticAnalytics is a custom analytics solution for Project Borealis.",
+	"Category" : "Analytics",
+    "CreatedBy" : "Project Borealis",
+    "CreatedByURL" : "https://www.projectborealis.com",
+	"DocsURL" : "",
+	"MarketplaceURL" : "",
+	"SupportURL" : "",
+	"EnabledByDefault" : false,
+	"CanContainContent" : false,
+	"IsBetaVersion" : true,
+    "Modules" :
+    [
+        {
+            "Name" : "ArcticAnalytics",
+            "Type" : "Runtime",
+            "LoadingPhase" : "PreDefault"
+        }
+    ]
+}
