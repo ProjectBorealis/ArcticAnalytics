@@ -35,6 +35,8 @@ class FAnalyticsProviderArcticAnalytics :
 	FArchive* FileArchive;
 
 public:
+	DECLARE_DELEGATE_OneParam(FHMACSecretDelegate, FString&);
+
 	FAnalyticsProviderArcticAnalytics();
 	virtual ~FAnalyticsProviderArcticAnalytics();
 
@@ -67,5 +69,87 @@ public:
 	virtual void RecordError(const FString& Error, const TArray<FAnalyticsEventAttribute>& EventAttrs) override;
 	virtual void RecordProgress(const FString& ProgressType, const FString& ProgressHierarchy, const TArray<FAnalyticsEventAttribute>& EventAttrs) override;
 
-	void SendPerfData();
+	FHMACSecretDelegate& GetHMACSecretDelegate()
+	{
+		static FHMACSecretDelegate HMACSecretDelegate;
+		return HMACSecretDelegate;
+	}
+
+	void SendDataToServer();
 };
+
+typedef void(*THMACSecretFunc)(FString&);
+	
+void RegisterHMACSecretCallback(THMACSecretFunc InCallback)
+{
+	FAnalyticsProviderArcticAnalytics::GetHMACSecretDelegate().BindLambda([InCallback](FString& Secret)
+	{
+		InCallback(Secret);
+	});
+}
+
+DECLARE_DELEGATE_OneParam(FArcticAnalyticsConfigSectionDelegate, FString&);
+DECLARE_DELEGATE_OneParam(FArcticAnalyticsConfigKeyDelegate, FString&);
+DECLARE_DELEGATE_OneParam(FArcticAnalyticsConfigFileDelegate, FString&);
+
+static FArcticAnalyticsConfigSectionDelegate ConfigSectionDelegate;
+static FArcticAnalyticsConfigKeyDelegate ConfigKeyDelegate;
+static FArcticAnalyticsConfigFileDelegate ConfigFileDelegate;
+
+void RegisterArcticAnalyticsConfigSection()
+{
+	ConfigSectionDelegate.BindLambda([InCallback](FString& ConfigSection)
+	{
+		ConfigSection = TEXT("/Script/ArcticAnalytics.Settings");
+	});
+}
+
+void RegisterArcticAnalyticsConfigKey()
+{
+	ConfigKeyDelegate.BindLambda([InCallback](FString& ConfigKey)
+	{
+		ConfigKey = TEXT("Secret");
+	});
+}
+
+void RegisterArcticAnalyticsConfigFile()
+{
+	ConfigFileDelegate.BindLambda([InCallback](FString& ConfigFile)
+	{
+		ConfigFile = TEXT("%sDefaultEngine.ini");
+	});
+}
+
+struct FArcticAnalyticsConfigRegistration
+{
+	FArcticAnalyticsConfigRegistration()
+	{
+		RegisterArcticAnalyticsConfigSection();
+		RegisterArcticAnalyticsConfigKey();
+		RegisterArcticAnalyticsConfigFile();
+	}
+} GArcticAnalyticsConfigRegistration;
+
+struct FHMACKeyRegistration
+{
+	FHMACKeyRegistration()
+	{
+		RegisterHMACSecretCallback(&Callback);
+	}
+	
+	static void Callback(FString& Secret)
+	{
+		FString Section;
+		ConfigSectionDelegate.ExecuteIfBound(Section);
+		FString Key;
+		ConfigKeyDelegate.ExecuteIfBound(Key);
+		FString File;
+		ConfigFileDelegate.ExecuteIfBound(File);
+		if (Section.IsEmpty() || Key.IsEmpty() || File.IsEmpty()
+			!GConfig->GetString(Section, Key, Secret,
+								FString::Printf(File, *FPaths::SourceConfigDir())))
+		{
+			return;
+		}
+	}
+} GArcticAnalyticsHMACKeyRegistration;

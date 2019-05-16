@@ -522,7 +522,7 @@ void SHA256Key::FromStringKey(const FString &str)
 
 FString SHA256Key::ToHexString()
 {
-	return FString::FromHexBlob(m_KeyBytes, SHA256_DIGEST_SIZE).ToLower();
+	return FString::FromHexBlob(m_KeyBytes, SHA256_DIGEST_SIZE);
 }
 
 //SHA 256

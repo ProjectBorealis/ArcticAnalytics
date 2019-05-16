@@ -101,7 +101,7 @@ void FAnalyticsProviderArcticAnalytics::EndSession()
 		FileArchive->Logf(TEXT("}"));
 		FileArchive->Flush();
 		FileArchive->Close();
-		SendPerfData();
+		SendDataToServer();
 		delete FileArchive;
 		FileArchive = nullptr;
 		UE_LOG(LogArcticAnalyticsAnalytics, Display, TEXT("Session ended for user (%s) and session id (%s)"), *UserId, *SessionId);
@@ -119,7 +119,7 @@ void FAnalyticsProviderArcticAnalytics::FlushEvents()
 	}
 }
 
-void FAnalyticsProviderArcticAnalytics::SendPerfData()
+void FAnalyticsProviderArcticAnalytics::SendDataToServer()
 {
 	FString AnalyticsPath = AnalyticsFilePath + SessionId + TEXT(".analytics");
 	FString AnalyticsJson;
@@ -129,21 +129,23 @@ void FAnalyticsProviderArcticAnalytics::SendPerfData()
 	if (!GConfig->GetString(TEXT("/Script/ArcticAnalytics.Settings"), TEXT("Server"), ConfigServer,
 							FString::Printf(TEXT("%sDefaultEngine.ini"), *FPaths::SourceConfigDir())))
 	{
-		ConfigServer = TEXT("");
+		UE_LOG(LogArcticAnalyticsAnalytics, Error, TEXT("Server not configured! Can't send data to server."));
+		return;
 	}
 	Request->SetURL(ConfigServer);
 	Request->SetHeader(TEXT("User-Agent"), TEXT("X-UnrealEngine-Agent"));
 	Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
 	Request->SetHeader(TEXT("Accepts"), TEXT("application/json"));
-	// Get configured secret
-	FString ConfigSecret;
-	if (!GConfig->GetString(TEXT("/Script/ArcticAnalytics.Settings"), TEXT("Secret"), ConfigSecret,
-							FString::Printf(TEXT("%sDefaultEngine.ini"), *FPaths::SourceConfigDir())))
+	// Get HMAC secret
+	FString HMACSecret;
+	GetHMACSecretDelegate().ExecuteIfBound(HMACSecret);
+	if (Secret.IsEmpty())
 	{
-		ConfigSecret = TEXT("secret");
+		UE_LOG(LogArcticAnalyticsAnalytics, Error, TEXT("Secret not configured! Can't send data to server."));
+		return;
 	}
 	// HMAC for auth header
-	SHA256Key Hash = HMAC_SHA256::Hash(ConfigSecret, AnalyticsJson);
+	SHA256Key Hash = HMAC_SHA256::Hash(HMACSecret, AnalyticsJson);
 	Request->SetHeader(TEXT("Authorization"), Hash.ToHexString());
 	Request->SetVerb("POST");
 	// Set analytics content
