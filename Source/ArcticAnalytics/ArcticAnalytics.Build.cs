@@ -9,8 +9,6 @@ namespace UnrealBuildTool.Rules
         public ArcticAnalytics(ReadOnlyTargetRules Target) : base(Target)
         {
             PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
-			
-			bUseAVX = true;
 
             PublicDependencyModuleNames.AddRange(
                 new string[]
