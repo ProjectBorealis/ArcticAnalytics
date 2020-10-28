@@ -145,11 +145,6 @@ void FAnalyticsProviderArcticAnalytics::SendDataToServer()
 	Request->SetHeader(TEXT("User-Agent"), TEXT("X-UnrealEngine-Agent"));
 	Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
 	Request->SetHeader(TEXT("Accepts"), TEXT("application/json"));
-	// HMAC for auth header
-	SHA256Key Hash = HMAC_SHA256::Hash(ConfigSecret, AnalyticsJson);
-	Request->SetHeader(TEXT("Authorization"), Hash.ToHexString());
-	// POST request
-	Request->SetVerb("POST");
 	// Set analytics content
 	FString AnalyticsPath = AnalyticsFilePath + SessionId + TEXT(".analytics");
 	FString AnalyticsJson;
@@ -158,6 +153,11 @@ void FAnalyticsProviderArcticAnalytics::SendDataToServer()
 		UE_LOG(LogArcticAnalyticsAnalytics, Error, TEXT("Session could not be loaded! Can't send data to server."));
 		return;
 	}
+	// HMAC for auth header
+	SHA256Key Hash = HMAC_SHA256::Hash(ConfigSecret, AnalyticsJson);
+	Request->SetHeader(TEXT("Authorization"), Hash.ToHexString());
+	// POST request
+	Request->SetVerb("POST");
 	Request->SetContentAsString(AnalyticsJson);
 	Request->ProcessRequest();
 }
