@@ -101,7 +101,7 @@ void FAnalyticsProviderArcticAnalytics::EndSession()
 		FileArchive->Logf(TEXT("}"));
 		FileArchive->Flush();
 		FileArchive->Close();
-		SendPerfData();
+		SendDataToServer();
 		delete FileArchive;
 		FileArchive = nullptr;
 		UE_LOG(LogArcticAnalyticsAnalytics, Display, TEXT("Session ended for user (%s) and session id (%s)"), *UserId, *SessionId);
@@ -119,34 +119,45 @@ void FAnalyticsProviderArcticAnalytics::FlushEvents()
 	}
 }
 
-void FAnalyticsProviderArcticAnalytics::SendPerfData()
+void FAnalyticsProviderArcticAnalytics::SendDataToServer()
 {
-	FString AnalyticsPath = AnalyticsFilePath + SessionId + TEXT(".analytics");
-	FString AnalyticsJson;
-	FFileHelper::LoadFileToString(AnalyticsJson, *AnalyticsPath);
-	TSharedRef<IHttpRequest> Request = FHttpModule::Get().CreateRequest();
+	// Get configured server
 	FString ConfigServer;
 	if (!GConfig->GetString(TEXT("/Script/ArcticAnalytics.Settings"), TEXT("Server"), ConfigServer,
 							FString::Printf(TEXT("%sDefaultEngine.ini"), *FPaths::SourceConfigDir())))
 	{
-		ConfigServer = TEXT("");
+		UE_LOG(LogArcticAnalyticsAnalytics, Error, TEXT("Server not configured! Can't send data to server."));
+		return;
 	}
-	Request->SetURL(ConfigServer);
-	Request->SetHeader(TEXT("User-Agent"), TEXT("X-UnrealEngine-Agent"));
-	Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
-	Request->SetHeader(TEXT("Accepts"), TEXT("application/json"));
 	// Get configured secret
 	FString ConfigSecret;
 	if (!GConfig->GetString(TEXT("/Script/ArcticAnalytics.Settings"), TEXT("Secret"), ConfigSecret,
 							FString::Printf(TEXT("%sDefaultEngine.ini"), *FPaths::SourceConfigDir())))
 	{
-		ConfigSecret = TEXT("secret");
+		UE_LOG(LogArcticAnalyticsAnalytics, Error, TEXT("Secret not configured! Can't send data to server."));
+		return;
 	}
+	// Create the request
+	TSharedRef<IHttpRequest> Request = FHttpModule::Get().CreateRequest();
+	// Set endpoint
+	Request->SetURL(ConfigServer);
+	// Set headers
+	Request->SetHeader(TEXT("User-Agent"), TEXT("X-UnrealEngine-Agent"));
+	Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+	Request->SetHeader(TEXT("Accepts"), TEXT("application/json"));
 	// HMAC for auth header
 	SHA256Key Hash = HMAC_SHA256::Hash(ConfigSecret, AnalyticsJson);
 	Request->SetHeader(TEXT("Authorization"), Hash.ToHexString());
+	// POST request
 	Request->SetVerb("POST");
 	// Set analytics content
+	FString AnalyticsPath = AnalyticsFilePath + SessionId + TEXT(".analytics");
+	FString AnalyticsJson;
+	if (!FFileHelper::LoadFileToString(AnalyticsJson, *AnalyticsPath))
+	{
+		UE_LOG(LogArcticAnalyticsAnalytics, Error, TEXT("Session could not be loaded! Can't send data to server."));
+		return;
+	}
 	Request->SetContentAsString(AnalyticsJson);
 	Request->ProcessRequest();
 }

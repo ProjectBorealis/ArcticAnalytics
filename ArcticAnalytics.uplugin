@@ -1,7 +1,7 @@
 {
     "FileVersion" : 3,
-    "Version" : 1,
-    "VersionName" : "0.0.1",
+    "Version" : 100,
+    "VersionName" : "1.0.0",
 	"FriendlyName" : "ArcticAnalytics",
 	"Description" : "ArcticAnalytics is a custom analytics solution for Project Borealis.",
 	"Category" : "Analytics",
