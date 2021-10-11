@@ -138,7 +138,7 @@ void FAnalyticsProviderArcticAnalytics::SendDataToServer()
 		return;
 	}
 	// Create the request
-	TSharedRef<IHttpRequest> Request = FHttpModule::Get().CreateRequest();
+	const TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
 	// Set endpoint
 	Request->SetURL(ConfigServer);
 	// Set headers
@@ -227,8 +227,8 @@ void FAnalyticsProviderArcticAnalytics::RecordEvent(const FString& EventName, co
 					FileArchive->Logf(TEXT("\t\t\t,"));
 				}
 				FileArchive->Logf(TEXT("\t\t\t{"));
-				FileArchive->Logf(TEXT("\t\t\t\t\"name\" : \"%s\","), *Attr.AttrName);
-				FileArchive->Logf(TEXT("\t\t\t\t\"value\" : \"%s\""), *Attr.ToString());
+				FileArchive->Logf(TEXT("\t\t\t\t\"name\" : \"%s\","), *Attr.GetName());
+				FileArchive->Logf(TEXT("\t\t\t\t\"value\" : \"%s\""), *Attr.GetValue());
 				FileArchive->Logf(TEXT("\t\t\t}"));
 				bHasWrittenFirstAttr = true;
 			}
@@ -396,8 +396,8 @@ void FAnalyticsProviderArcticAnalytics::RecordError(const FString& Error, const 
 				FileArchive->Logf(TEXT("\t\t\t,"));
 			}
 			FileArchive->Logf(TEXT("\t\t\t{"));
-			FileArchive->Logf(TEXT("\t\t\t\t\"name\" : \"%s\","), *Attr.AttrName);
-			FileArchive->Logf(TEXT("\t\t\t\t\"value\" : \"%s\""), *Attr.ToString());
+			FileArchive->Logf(TEXT("\t\t\t\t\"name\" : \"%s\","), *Attr.GetName());
+			FileArchive->Logf(TEXT("\t\t\t\t\"value\" : \"%s\""), *Attr.GetValue());
 			FileArchive->Logf(TEXT("\t\t\t}"));
 			bHasWrittenFirstAttr = true;
 		}
@@ -441,8 +441,8 @@ void FAnalyticsProviderArcticAnalytics::RecordProgress(const FString& ProgressTy
 				FileArchive->Logf(TEXT("\t\t\t,"));
 			}
 			FileArchive->Logf(TEXT("\t\t\t{"));
-			FileArchive->Logf(TEXT("\t\t\t\t\"name\" : \"%s\","), *Attr.AttrName);
-			FileArchive->Logf(TEXT("\t\t\t\t\"value\" : \"%s\""), *Attr.ToString());
+			FileArchive->Logf(TEXT("\t\t\t\t\"name\" : \"%s\","), *Attr.GetName());
+			FileArchive->Logf(TEXT("\t\t\t\t\"value\" : \"%s\""), *Attr.GetValue());
 			FileArchive->Logf(TEXT("\t\t\t}"));
 			bHasWrittenFirstAttr = true;
 		}
@@ -487,8 +487,8 @@ void FAnalyticsProviderArcticAnalytics::RecordItemPurchase(const FString& ItemId
 				FileArchive->Logf(TEXT("\t\t\t,"));
 			}
 			FileArchive->Logf(TEXT("\t\t\t{"));
-			FileArchive->Logf(TEXT("\t\t\t\t\"name\" : \"%s\","), *Attr.AttrName);
-			FileArchive->Logf(TEXT("\t\t\t\t\"value\" : \"%s\""), *Attr.ToString());
+			FileArchive->Logf(TEXT("\t\t\t\t\"name\" : \"%s\","), *Attr.GetName());
+			FileArchive->Logf(TEXT("\t\t\t\t\"value\" : \"%s\""), *Attr.GetValue());
 			FileArchive->Logf(TEXT("\t\t\t}"));
 			bHasWrittenFirstAttr = true;
 		}
@@ -533,8 +533,8 @@ void FAnalyticsProviderArcticAnalytics::RecordCurrencyPurchase(const FString& Ga
 				FileArchive->Logf(TEXT("\t\t\t,"));
 			}
 			FileArchive->Logf(TEXT("\t\t\t{"));
-			FileArchive->Logf(TEXT("\t\t\t\t\"name\" : \"%s\","), *Attr.AttrName);
-			FileArchive->Logf(TEXT("\t\t\t\t\"value\" : \"%s\""), *Attr.ToString());
+			FileArchive->Logf(TEXT("\t\t\t\t\"name\" : \"%s\","), *Attr.GetName());
+			FileArchive->Logf(TEXT("\t\t\t\t\"value\" : \"%s\""), *Attr.GetValue());
 			FileArchive->Logf(TEXT("\t\t\t}"));
 			bHasWrittenFirstAttr = true;
 		}
@@ -579,8 +579,8 @@ void FAnalyticsProviderArcticAnalytics::RecordCurrencyGiven(const FString& GameC
 				FileArchive->Logf(TEXT("\t\t\t,"));
 			}
 			FileArchive->Logf(TEXT("\t\t\t{"));
-			FileArchive->Logf(TEXT("\t\t\t\t\"name\" : \"%s\","), *Attr.AttrName);
-			FileArchive->Logf(TEXT("\t\t\t\t\"value\" : \"%s\""), *Attr.ToString());
+			FileArchive->Logf(TEXT("\t\t\t\t\"name\" : \"%s\","), *Attr.GetName());
+			FileArchive->Logf(TEXT("\t\t\t\t\"value\" : \"%s\""), *Attr.GetValue());
 			FileArchive->Logf(TEXT("\t\t\t}"));
 			bHasWrittenFirstAttr = true;
 		}
