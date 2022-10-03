@@ -144,7 +144,7 @@ void FAnalyticsProviderArcticAnalytics::SendDataToServer()
 	// Set headers
 	Request->SetHeader(TEXT("User-Agent"), TEXT("X-UnrealEngine-Agent"));
 	Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
-	Request->SetHeader(TEXT("Accepts"), TEXT("application/json"));
+	Request->SetHeader(TEXT("Accept"), TEXT("application/json"));
 	// Set analytics content
 	FString AnalyticsPath = AnalyticsFilePath + SessionId + TEXT(".analytics");
 	FString AnalyticsJson;
