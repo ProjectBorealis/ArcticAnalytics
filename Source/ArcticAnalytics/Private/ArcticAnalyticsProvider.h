@@ -10,9 +10,11 @@
 
 class Error;
 
-class FAnalyticsProviderArcticAnalytics :
-	public IAnalyticsProvider
+class FAnalyticsProviderArcticAnalytics : public IAnalyticsProvider
 {
+private:
+	TArray<FAnalyticsEventAttribute> DefaultEventAttributes;
+
 	/** Path where analytics files are saved out */
 	FString AnalyticsFilePath;
 	/** Tracks whether we need to start the session or restart it */
@@ -32,6 +34,11 @@ public:
 
 	virtual FString GetSessionID() const override;
 	virtual bool SetSessionID(const FString& InSessionID) override;
+
+	virtual void SetDefaultEventAttributes(TArray<FAnalyticsEventAttribute>&& Attributes) override;
+	virtual TArray<FAnalyticsEventAttribute> GetDefaultEventAttributesSafe() const override;
+	virtual int32 GetDefaultEventAttributeCount() const override;
+	virtual FAnalyticsEventAttribute GetDefaultEventAttribute(int AttributeIndex) const override;
 
 	virtual void RecordEvent(const FString& EventName, const TArray<FAnalyticsEventAttribute>& Attributes) override;
 

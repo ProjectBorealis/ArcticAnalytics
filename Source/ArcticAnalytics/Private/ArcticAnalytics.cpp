@@ -219,6 +219,26 @@ bool FAnalyticsProviderArcticAnalytics::SetSessionID(const FString& InSessionID)
 	return !bHasSessionStarted;
 }
 
+void FAnalyticsProviderArcticAnalytics::SetDefaultEventAttributes(TArray<FAnalyticsEventAttribute>&& Attributes)
+{
+	DefaultEventAttributes = Attributes;
+}
+
+TArray<FAnalyticsEventAttribute> FAnalyticsProviderArcticAnalytics::GetDefaultEventAttributesSafe() const
+{
+	return DefaultEventAttributes;
+}
+
+int32 FAnalyticsProviderArcticAnalytics::GetDefaultEventAttributeCount() const
+{
+	return DefaultEventAttributes.Num();
+}
+
+FAnalyticsEventAttribute FAnalyticsProviderArcticAnalytics::GetDefaultEventAttribute(int AttributeIndex) const
+{
+	return DefaultEventAttributes[AttributeIndex];
+}
+
 void FAnalyticsProviderArcticAnalytics::RecordEvent(const FString& EventName, const TArray<FAnalyticsEventAttribute>& Attributes)
 {
 	static uint32 RecordId(0);
