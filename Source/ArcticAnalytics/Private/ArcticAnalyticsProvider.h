@@ -19,21 +19,6 @@ class FAnalyticsProviderArcticAnalytics :
 	bool bHasSessionStarted;
 	/** Whether an event was written before or not */
 	bool bHasWrittenFirstEvent;
-	/** Id representing the user the analytics are recording for */
-	FString UserId;
-	/** Unique Id representing the session the analytics are recording for */
-	FString SessionId;
-	/** Holds the Age if set */
-	int32 Age;
-	/** Holds the Location of the user if set */
-	FString Location;
-	/** Holds the Gender of the user if set */
-	FString Gender;
-	/** Holds the build info if set */
-	FString BuildInfo;
-	/** The file archive used to write the data */
-	FArchive* FileArchive;
-
 public:
 	FAnalyticsProviderArcticAnalytics();
 	virtual ~FAnalyticsProviderArcticAnalytics();
@@ -67,5 +52,27 @@ public:
 	virtual void RecordError(const FString& Error, const TArray<FAnalyticsEventAttribute>& EventAttrs) override;
 	virtual void RecordProgress(const FString& ProgressType, const FString& ProgressHierarchy, const TArray<FAnalyticsEventAttribute>& EventAttrs) override;
 
+	void SetDefaultEventAttributes(TArray<FAnalyticsEventAttribute>&& Attributes) override;
+	TArray<FAnalyticsEventAttribute> GetDefaultEventAttributesSafe() const override;
+	int32 GetDefaultEventAttributeCount() const override;
+	FAnalyticsEventAttribute GetDefaultEventAttribute(int AttributeIndex) const override;
+
 	void SendDataToServer();
+
+private:
+	/** Id representing the user the analytics are recording for */
+	FString UserId;
+	/** Unique Id representing the session the analytics are recording for */
+	FString SessionId;
+	/** Holds the Age if set */
+	int32 Age;
+	/** Holds the Location of the user if set */
+	FString Location;
+	/** Holds the Gender of the user if set */
+	FString Gender;
+	/** Holds the build info if set */
+	FString BuildInfo;
+	/** The file archive used to write the data */
+	TUniquePtr<FArchive> FileWriter;
+	TArray<FAnalyticsEventAttribute> DefaultEventAttributes;
 };

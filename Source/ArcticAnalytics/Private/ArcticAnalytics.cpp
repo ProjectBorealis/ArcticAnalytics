@@ -36,10 +36,9 @@ TSharedPtr<IAnalyticsProvider> FAnalyticsArcticAnalytics::CreateAnalyticsProvide
 
 // Provider
 
-FAnalyticsProviderArcticAnalytics::FAnalyticsProviderArcticAnalytics() : bHasSessionStarted(false), bHasWrittenFirstEvent(false), Age(0), FileArchive(nullptr)
+FAnalyticsProviderArcticAnalytics::FAnalyticsProviderArcticAnalytics() : bHasSessionStarted(false), bHasWrittenFirstEvent(false), Age(0), FileWriter(nullptr)
 {
-	FileArchive = nullptr;
-	AnalyticsFilePath = FPaths::ProjectSavedDir() + TEXT("Analytics/");
+	AnalyticsFilePath = FPaths::ProjectSavedDir() / TEXT("Analytics");
 	UserId = FGuid::NewGuid().ToString();
 }
 
@@ -58,33 +57,33 @@ bool FAnalyticsProviderArcticAnalytics::StartSession(const TArray<FAnalyticsEven
 		EndSession();
 	}
 	SessionId = UserId + TEXT("-") + FDateTime::UtcNow().ToString();
-	const FString FileName = AnalyticsFilePath + SessionId + TEXT(".analytics");
+	const FString FilePath = AnalyticsFilePath / (SessionId + TEXT(".analytics"));
 	// Close the old file and open a new one
-	FileArchive = IFileManager::Get().CreateFileWriter(*FileName);
-	if (FileArchive != nullptr)
+	FileWriter = TUniquePtr<FArchive>(IFileManager::Get().CreateFileWriter(*FilePath, FILEWRITE_EvenIfReadOnly));
+	if (FileWriter)
 	{
-		FileArchive->Logf(TEXT("{"));
-		FileArchive->Logf(TEXT("\t\"sessionId\" : \"%s\","), *SessionId);
-		FileArchive->Logf(TEXT("\t\"userId\" : \"%s\","), *UserId);
+		FileWriter->Logf(TEXT("{"));
+		FileWriter->Logf(TEXT("\t\"sessionId\" : \"%s\","), *SessionId);
+		FileWriter->Logf(TEXT("\t\"userId\" : \"%s\","), *UserId);
 		if (BuildInfo.Len() > 0)
 		{
-			FileArchive->Logf(TEXT("\t\"buildInfo\" : \"%s\","), *BuildInfo);
+			FileWriter->Logf(TEXT("\t\"buildInfo\" : \"%s\","), *BuildInfo);
 		}
 		if (Age != 0)
 		{
-			FileArchive->Logf(TEXT("\t\"age\" : %d,"), Age);
+			FileWriter->Logf(TEXT("\t\"age\" : %d,"), Age);
 		}
 		if (Gender.Len() > 0)
 		{
-			FileArchive->Logf(TEXT("\t\"gender\" : \"%s\","), *Gender);
+			FileWriter->Logf(TEXT("\t\"gender\" : \"%s\","), *Gender);
 		}
 		if (Location.Len() > 0)
 		{
-			FileArchive->Logf(TEXT("\t\"location\" : \"%s\","), *Location);
+			FileWriter->Logf(TEXT("\t\"location\" : \"%s\","), *Location);
 		}
-		FileArchive->Logf(TEXT("\t\"events\" : ["));
+		FileWriter->Logf(TEXT("\t\"events\" : ["));
 		bHasSessionStarted = true;
-		UE_LOG(LogArcticAnalyticsAnalytics, Display, TEXT("Session created file (%s) for user (%s)"), *FileName, *UserId);
+		UE_LOG(LogArcticAnalyticsAnalytics, Display, TEXT("Session created file (%s) for user (%s)"), *FilePath, *UserId);
 	}
 	else
 	{
@@ -95,15 +94,14 @@ bool FAnalyticsProviderArcticAnalytics::StartSession(const TArray<FAnalyticsEven
 
 void FAnalyticsProviderArcticAnalytics::EndSession()
 {
-	if (FileArchive != nullptr)
+	if (FileWriter)
 	{
-		FileArchive->Logf(TEXT("\t]"));
-		FileArchive->Logf(TEXT("}"));
-		FileArchive->Flush();
-		FileArchive->Close();
+		FileWriter->Logf(TEXT("\t]"));
+		FileWriter->Logf(TEXT("}"));
+		FileWriter->Flush();
+		FileWriter->Close();
 		SendDataToServer();
-		delete FileArchive;
-		FileArchive = nullptr;
+		FileWriter = nullptr;
 		UE_LOG(LogArcticAnalyticsAnalytics, Display, TEXT("Session ended for user (%s) and session id (%s)"), *UserId, *SessionId);
 	}
 	bHasWrittenFirstEvent = false;
@@ -112,9 +110,9 @@ void FAnalyticsProviderArcticAnalytics::EndSession()
 
 void FAnalyticsProviderArcticAnalytics::FlushEvents()
 {
-	if (FileArchive != nullptr)
+	if (FileWriter)
 	{
-		FileArchive->Flush();
+		FileWriter->Flush();
 		UE_LOG(LogArcticAnalyticsAnalytics, Display, TEXT("Analytics file flushed"));
 	}
 }
@@ -146,7 +144,7 @@ void FAnalyticsProviderArcticAnalytics::SendDataToServer()
 	Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
 	Request->SetHeader(TEXT("Accept"), TEXT("application/json"));
 	// Set analytics content
-	FString AnalyticsPath = AnalyticsFilePath + SessionId + TEXT(".analytics");
+	FString AnalyticsPath = AnalyticsFilePath / (SessionId + TEXT(".analytics"));
 	FString AnalyticsJson;
 	if (!FFileHelper::LoadFileToString(AnalyticsJson, *AnalyticsPath))
 	{
@@ -160,6 +158,26 @@ void FAnalyticsProviderArcticAnalytics::SendDataToServer()
 	Request->SetVerb("POST");
 	Request->SetContentAsString(AnalyticsJson);
 	Request->ProcessRequest();
+}
+
+void FAnalyticsProviderArcticAnalytics::SetDefaultEventAttributes(TArray<FAnalyticsEventAttribute>&& Attributes)
+{
+	DefaultEventAttributes = Attributes;
+}
+
+TArray<FAnalyticsEventAttribute> FAnalyticsProviderArcticAnalytics::GetDefaultEventAttributesSafe() const
+{
+	return DefaultEventAttributes;
+}
+
+int32 FAnalyticsProviderArcticAnalytics::GetDefaultEventAttributeCount() const
+{
+	return DefaultEventAttributes.Num();
+}
+
+FAnalyticsEventAttribute FAnalyticsProviderArcticAnalytics::GetDefaultEventAttribute(int AttributeIndex) const
+{
+	return DefaultEventAttributes[AttributeIndex];
 }
 
 void FAnalyticsProviderArcticAnalytics::SetUserID(const FString& InUserID)
@@ -203,40 +221,53 @@ bool FAnalyticsProviderArcticAnalytics::SetSessionID(const FString& InSessionID)
 
 void FAnalyticsProviderArcticAnalytics::RecordEvent(const FString& EventName, const TArray<FAnalyticsEventAttribute>& Attributes)
 {
+	static uint32 RecordId(0);
+
 	if (bHasSessionStarted)
 	{
-		check(FileArchive != nullptr);
-
-		if (bHasWrittenFirstEvent)
+		if (FileWriter)
 		{
-			FileArchive->Logf(TEXT(","));
-		}
-		bHasWrittenFirstEvent = true;
-
-		FileArchive->Logf(TEXT("\t\t{"));
-		FileArchive->Logf(TEXT("\t\t\t\"eventName\" : \"%s\""), *EventName);
-		if (Attributes.Num() > 0)
-		{
-			FileArchive->Logf(TEXT(",\t\t\t\"attributes\" : ["));
-			bool bHasWrittenFirstAttr = false;
-			// Write out the list of attributes as an array of attribute objects
-			for (auto Attr : Attributes)
+			TStringBuilder<1024> Builder;
+			if (bHasWrittenFirstEvent)
 			{
-				if (bHasWrittenFirstAttr)
-				{
-					FileArchive->Logf(TEXT("\t\t\t,"));
-				}
-				FileArchive->Logf(TEXT("\t\t\t{"));
-				FileArchive->Logf(TEXT("\t\t\t\t\"name\" : \"%s\","), *Attr.GetName());
-				FileArchive->Logf(TEXT("\t\t\t\t\"value\" : \"%s\""), *Attr.GetValue());
-				FileArchive->Logf(TEXT("\t\t\t}"));
-				bHasWrittenFirstAttr = true;
+				Builder.Appendf(TEXT(","));
 			}
-			FileArchive->Logf(TEXT("\t\t\t]"));
-		}
-		FileArchive->Logf(TEXT("\t\t}"));
+			bHasWrittenFirstEvent = true;
 
-		UE_LOG(LogArcticAnalyticsAnalytics, Display, TEXT("Analytics event (%s) written with (%d) attributes"), *EventName, Attributes.Num());
+			// Log event as JSON
+			Builder.Appendf(TEXT("\t\t{\n"));
+			Builder.Appendf(TEXT("\t\t\t\"EventName\": \"%s\""), *EventName);
+			
+			// Add the event timestamp field
+			Builder.Appendf(TEXT(",\n\t\t\t\"TimestampUTC\": \"%s\""), FDateTime::UtcNow().ToUnixTimestampDecimal());
+			
+			// Add the record Id and increment it
+			Builder.Appendf(TEXT(",\n\t\t\t\"RecordId\": \"%s\""), RecordId++);
+
+			// Accumulate all the attributes together. We could have had two loops but this seems cleaner
+			TArray<FAnalyticsEventAttribute> EventAttributes(DefaultEventAttributes);
+			EventAttributes.Append(Attributes);
+
+			// Add all the attributes
+			for (const FAnalyticsEventAttribute& Attribute : EventAttributes)
+			{
+				// This should be almost nearly true, but we should check and JSON'ify as needed
+				if (Attribute.IsJsonFragment())
+				{
+					Builder.Appendf(TEXT(",\n\t\t\t\"%s\":%s"), *Attribute.GetName(), *Attribute.GetValue());
+				}
+				else
+				{
+					Builder.Appendf(TEXT(",\n\t\t\t\"%s\":\"%s\""), *Attribute.GetName(), *Attribute.GetValue());
+				}
+			}
+
+			Builder.Appendf(TEXT("\n\t\t}"));
+
+			FileWriter->Logf(TEXT("%s"), Builder.ToString());
+
+			UE_LOG(LogArcticAnalyticsAnalytics, Display, TEXT("Analytics event (%s) written with (%d) attributes"), *EventName, Attributes.Num());
+		}
 	}
 	else
 	{
@@ -248,28 +279,28 @@ void FAnalyticsProviderArcticAnalytics::RecordItemPurchase(const FString& ItemId
 {
 	if (bHasSessionStarted)
 	{
-		check(FileArchive != nullptr);
+		check(FileWriter);
 
 		if (bHasWrittenFirstEvent)
 		{
-			FileArchive->Logf(TEXT("\t\t,"));
+			FileWriter->Logf(TEXT("\t\t,"));
 		}
 		bHasWrittenFirstEvent = true;
 
-		FileArchive->Logf(TEXT("\t\t{"));
-		FileArchive->Logf(TEXT("\t\t\t\"eventName\" : \"recordItemPurchase\","));
+		FileWriter->Logf(TEXT("\t\t{"));
+		FileWriter->Logf(TEXT("\t\t\t\"eventName\" : \"recordItemPurchase\","));
 
-		FileArchive->Logf(TEXT("\t\t\t\"attributes\" :"));
-		FileArchive->Logf(TEXT("\t\t\t["));
+		FileWriter->Logf(TEXT("\t\t\t\"attributes\" :"));
+		FileWriter->Logf(TEXT("\t\t\t["));
 
-		FileArchive->Logf(TEXT("\t\t\t\t{ \"name\" : \"itemId\", \t\"value\" : \"%s\" },"), *ItemId);
-		FileArchive->Logf(TEXT("\t\t\t\t{ \"name\" : \"currency\", \t\"value\" : \"%s\" },"), *Currency);
-		FileArchive->Logf(TEXT("\t\t\t\t{ \"name\" : \"perItemCost\", \t\"value\" : \"%d\" },"), PerItemCost);
-		FileArchive->Logf(TEXT("\t\t\t\t{ \"name\" : \"itemQuantity\", \t\"value\" : \"%d\" }"), ItemQuantity);
+		FileWriter->Logf(TEXT("\t\t\t\t{ \"name\" : \"itemId\", \t\"value\" : \"%s\" },"), *ItemId);
+		FileWriter->Logf(TEXT("\t\t\t\t{ \"name\" : \"currency\", \t\"value\" : \"%s\" },"), *Currency);
+		FileWriter->Logf(TEXT("\t\t\t\t{ \"name\" : \"perItemCost\", \t\"value\" : \"%d\" },"), PerItemCost);
+		FileWriter->Logf(TEXT("\t\t\t\t{ \"name\" : \"itemQuantity\", \t\"value\" : \"%d\" }"), ItemQuantity);
 
-		FileArchive->Logf(TEXT("\t\t\t]"));
+		FileWriter->Logf(TEXT("\t\t\t]"));
 
-		FileArchive->Logf(TEXT("\t\t}"));
+		FileWriter->Logf(TEXT("\t\t}"));
 
 		UE_LOG(LogArcticAnalyticsAnalytics, Display, TEXT("(%d) number of item (%s) purchased with (%s) at a cost of (%d) each"), ItemQuantity, *ItemId, *Currency, PerItemCost);
 	}
@@ -284,29 +315,29 @@ void FAnalyticsProviderArcticAnalytics::RecordCurrencyPurchase(const FString& Ga
 {
 	if (bHasSessionStarted)
 	{
-		check(FileArchive != nullptr);
+		check(FileWriter);
 
 		if (bHasWrittenFirstEvent)
 		{
-			FileArchive->Logf(TEXT("\t\t,"));
+			FileWriter->Logf(TEXT("\t\t,"));
 		}
 		bHasWrittenFirstEvent = true;
 
-		FileArchive->Logf(TEXT("\t\t{"));
-		FileArchive->Logf(TEXT("\t\t\t\"eventName\" : \"recordCurrencyPurchase\","));
+		FileWriter->Logf(TEXT("\t\t{"));
+		FileWriter->Logf(TEXT("\t\t\t\"eventName\" : \"recordCurrencyPurchase\","));
 
-		FileArchive->Logf(TEXT("\t\t\t\"attributes\" :"));
-		FileArchive->Logf(TEXT("\t\t\t["));
+		FileWriter->Logf(TEXT("\t\t\t\"attributes\" :"));
+		FileWriter->Logf(TEXT("\t\t\t["));
 
-		FileArchive->Logf(TEXT("\t\t\t\t{ \"name\" : \"gameCurrencyType\", \t\"value\" : \"%s\" },"), *GameCurrencyType);
-		FileArchive->Logf(TEXT("\t\t\t\t{ \"name\" : \"gameCurrencyAmount\", \t\"value\" : \"%d\" },"), GameCurrencyAmount);
-		FileArchive->Logf(TEXT("\t\t\t\t{ \"name\" : \"realCurrencyType\", \t\"value\" : \"%s\" },"), *RealCurrencyType);
-		FileArchive->Logf(TEXT("\t\t\t\t{ \"name\" : \"realMoneyCost\", \t\"value\" : \"%f\" },"), RealMoneyCost);
-		FileArchive->Logf(TEXT("\t\t\t\t{ \"name\" : \"paymentProvider\", \t\"value\" : \"%s\" }"), *PaymentProvider);
+		FileWriter->Logf(TEXT("\t\t\t\t{ \"name\" : \"gameCurrencyType\", \t\"value\" : \"%s\" },"), *GameCurrencyType);
+		FileWriter->Logf(TEXT("\t\t\t\t{ \"name\" : \"gameCurrencyAmount\", \t\"value\" : \"%d\" },"), GameCurrencyAmount);
+		FileWriter->Logf(TEXT("\t\t\t\t{ \"name\" : \"realCurrencyType\", \t\"value\" : \"%s\" },"), *RealCurrencyType);
+		FileWriter->Logf(TEXT("\t\t\t\t{ \"name\" : \"realMoneyCost\", \t\"value\" : \"%f\" },"), RealMoneyCost);
+		FileWriter->Logf(TEXT("\t\t\t\t{ \"name\" : \"paymentProvider\", \t\"value\" : \"%s\" }"), *PaymentProvider);
 
-		FileArchive->Logf(TEXT("\t\t\t]"));
+		FileWriter->Logf(TEXT("\t\t\t]"));
 
-		FileArchive->Logf(TEXT("\t\t}"));
+		FileWriter->Logf(TEXT("\t\t}"));
 
 		UE_LOG(LogArcticAnalyticsAnalytics, Display, TEXT("(%d) amount of in game currency (%s) purchased with (%s) at a cost of (%f) each"),
 			   GameCurrencyAmount, *GameCurrencyType, *RealCurrencyType, RealMoneyCost);
@@ -321,26 +352,26 @@ void FAnalyticsProviderArcticAnalytics::RecordCurrencyGiven(const FString& GameC
 {
 	if (bHasSessionStarted)
 	{
-		check(FileArchive != nullptr);
+		check(FileWriter);
 
 		if (bHasWrittenFirstEvent)
 		{
-			FileArchive->Logf(TEXT("\t\t,"));
+			FileWriter->Logf(TEXT("\t\t,"));
 		}
 		bHasWrittenFirstEvent = true;
 
-		FileArchive->Logf(TEXT("\t\t{"));
-		FileArchive->Logf(TEXT("\t\t\t\"eventName\" : \"recordCurrencyGiven\","));
+		FileWriter->Logf(TEXT("\t\t{"));
+		FileWriter->Logf(TEXT("\t\t\t\"eventName\" : \"recordCurrencyGiven\","));
 
-		FileArchive->Logf(TEXT("\t\t\t\"attributes\" :"));
-		FileArchive->Logf(TEXT("\t\t\t["));
+		FileWriter->Logf(TEXT("\t\t\t\"attributes\" :"));
+		FileWriter->Logf(TEXT("\t\t\t["));
 
-		FileArchive->Logf(TEXT("\t\t\t\t{ \"name\" : \"gameCurrencyType\", \t\"value\" : \"%s\" },"), *GameCurrencyType);
-		FileArchive->Logf(TEXT("\t\t\t\t{ \"name\" : \"gameCurrencyAmount\", \t\"value\" : \"%d\" }"), GameCurrencyAmount);
+		FileWriter->Logf(TEXT("\t\t\t\t{ \"name\" : \"gameCurrencyType\", \t\"value\" : \"%s\" },"), *GameCurrencyType);
+		FileWriter->Logf(TEXT("\t\t\t\t{ \"name\" : \"gameCurrencyAmount\", \t\"value\" : \"%d\" }"), GameCurrencyAmount);
 
-		FileArchive->Logf(TEXT("\t\t\t]"));
+		FileWriter->Logf(TEXT("\t\t\t]"));
 
-		FileArchive->Logf(TEXT("\t\t}"));
+		FileWriter->Logf(TEXT("\t\t}"));
 
 		UE_LOG(LogArcticAnalyticsAnalytics, Display, TEXT("(%d) amount of in game currency (%s) given to user"), GameCurrencyAmount, *GameCurrencyType);
 	}
@@ -374,36 +405,36 @@ void FAnalyticsProviderArcticAnalytics::RecordError(const FString& Error, const 
 {
 	if (bHasSessionStarted)
 	{
-		check(FileArchive != nullptr);
+		check(FileWriter);
 
 		if (bHasWrittenFirstEvent)
 		{
-			FileArchive->Logf(TEXT("\t\t,"));
+			FileWriter->Logf(TEXT("\t\t,"));
 		}
 		bHasWrittenFirstEvent = true;
 
-		FileArchive->Logf(TEXT("\t\t{"));
-		FileArchive->Logf(TEXT("\t\t\t\"error\" : \"%s\","), *Error);
+		FileWriter->Logf(TEXT("\t\t{"));
+		FileWriter->Logf(TEXT("\t\t\t\"error\" : \"%s\","), *Error);
 
-		FileArchive->Logf(TEXT("\t\t\t\"attributes\" :"));
-		FileArchive->Logf(TEXT("\t\t\t["));
+		FileWriter->Logf(TEXT("\t\t\t\"attributes\" :"));
+		FileWriter->Logf(TEXT("\t\t\t["));
 		bool bHasWrittenFirstAttr = false;
 		// Write out the list of attributes as an array of attribute objects
 		for (auto Attr : Attributes)
 		{
 			if (bHasWrittenFirstAttr)
 			{
-				FileArchive->Logf(TEXT("\t\t\t,"));
+				FileWriter->Logf(TEXT("\t\t\t,"));
 			}
-			FileArchive->Logf(TEXT("\t\t\t{"));
-			FileArchive->Logf(TEXT("\t\t\t\t\"name\" : \"%s\","), *Attr.GetName());
-			FileArchive->Logf(TEXT("\t\t\t\t\"value\" : \"%s\""), *Attr.GetValue());
-			FileArchive->Logf(TEXT("\t\t\t}"));
+			FileWriter->Logf(TEXT("\t\t\t{"));
+			FileWriter->Logf(TEXT("\t\t\t\t\"name\" : \"%s\","), *Attr.GetName());
+			FileWriter->Logf(TEXT("\t\t\t\t\"value\" : \"%s\""), *Attr.GetValue());
+			FileWriter->Logf(TEXT("\t\t\t}"));
 			bHasWrittenFirstAttr = true;
 		}
-		FileArchive->Logf(TEXT("\t\t\t]"));
+		FileWriter->Logf(TEXT("\t\t\t]"));
 
-		FileArchive->Logf(TEXT("\t\t}"));
+		FileWriter->Logf(TEXT("\t\t}"));
 
 		UE_LOG(LogArcticAnalyticsAnalytics, Display, TEXT("Error is (%s) number of attributes is (%d)"), *Error, Attributes.Num());
 	}
@@ -417,38 +448,38 @@ void FAnalyticsProviderArcticAnalytics::RecordProgress(const FString& ProgressTy
 {
 	if (bHasSessionStarted)
 	{
-		check(FileArchive != nullptr);
+		check(FileWriter);
 
 		if (bHasWrittenFirstEvent)
 		{
-			FileArchive->Logf(TEXT("\t\t,"));
+			FileWriter->Logf(TEXT("\t\t,"));
 		}
 		bHasWrittenFirstEvent = true;
 
-		FileArchive->Logf(TEXT("\t\t{"));
-		FileArchive->Logf(TEXT("\t\t\t\"eventType\" : \"Progress\","));
-		FileArchive->Logf(TEXT("\t\t\t\"progressType\" : \"%s\","), *ProgressType);
-		FileArchive->Logf(TEXT("\t\t\t\"progressName\" : \"%s\","), *ProgressName);
+		FileWriter->Logf(TEXT("\t\t{"));
+		FileWriter->Logf(TEXT("\t\t\t\"eventType\" : \"Progress\","));
+		FileWriter->Logf(TEXT("\t\t\t\"progressType\" : \"%s\","), *ProgressType);
+		FileWriter->Logf(TEXT("\t\t\t\"progressName\" : \"%s\","), *ProgressName);
 
-		FileArchive->Logf(TEXT("\t\t\t\"attributes\" :"));
-		FileArchive->Logf(TEXT("\t\t\t["));
+		FileWriter->Logf(TEXT("\t\t\t\"attributes\" :"));
+		FileWriter->Logf(TEXT("\t\t\t["));
 		bool bHasWrittenFirstAttr = false;
 		// Write out the list of attributes as an array of attribute objects
 		for (auto Attr : Attributes)
 		{
 			if (bHasWrittenFirstAttr)
 			{
-				FileArchive->Logf(TEXT("\t\t\t,"));
+				FileWriter->Logf(TEXT("\t\t\t,"));
 			}
-			FileArchive->Logf(TEXT("\t\t\t{"));
-			FileArchive->Logf(TEXT("\t\t\t\t\"name\" : \"%s\","), *Attr.GetName());
-			FileArchive->Logf(TEXT("\t\t\t\t\"value\" : \"%s\""), *Attr.GetValue());
-			FileArchive->Logf(TEXT("\t\t\t}"));
+			FileWriter->Logf(TEXT("\t\t\t{"));
+			FileWriter->Logf(TEXT("\t\t\t\t\"name\" : \"%s\","), *Attr.GetName());
+			FileWriter->Logf(TEXT("\t\t\t\t\"value\" : \"%s\""), *Attr.GetValue());
+			FileWriter->Logf(TEXT("\t\t\t}"));
 			bHasWrittenFirstAttr = true;
 		}
-		FileArchive->Logf(TEXT("\t\t\t]"));
+		FileWriter->Logf(TEXT("\t\t\t]"));
 
-		FileArchive->Logf(TEXT("\t\t}"));
+		FileWriter->Logf(TEXT("\t\t}"));
 
 		UE_LOG(LogArcticAnalyticsAnalytics, Display, TEXT("Progress event is type (%s), named (%s), number of attributes is (%d)"), *ProgressType,
 			   *ProgressName, Attributes.Num());
@@ -463,38 +494,38 @@ void FAnalyticsProviderArcticAnalytics::RecordItemPurchase(const FString& ItemId
 {
 	if (bHasSessionStarted)
 	{
-		check(FileArchive != nullptr);
+		check(FileWriter);
 
 		if (bHasWrittenFirstEvent)
 		{
-			FileArchive->Logf(TEXT("\t\t,"));
+			FileWriter->Logf(TEXT("\t\t,"));
 		}
 		bHasWrittenFirstEvent = true;
 
-		FileArchive->Logf(TEXT("\t\t{"));
-		FileArchive->Logf(TEXT("\t\t\t\"eventType\" : \"ItemPurchase\","));
-		FileArchive->Logf(TEXT("\t\t\t\"itemId\" : \"%s\","), *ItemId);
-		FileArchive->Logf(TEXT("\t\t\t\"itemQuantity\" : %d,"), ItemQuantity);
+		FileWriter->Logf(TEXT("\t\t{"));
+		FileWriter->Logf(TEXT("\t\t\t\"eventType\" : \"ItemPurchase\","));
+		FileWriter->Logf(TEXT("\t\t\t\"itemId\" : \"%s\","), *ItemId);
+		FileWriter->Logf(TEXT("\t\t\t\"itemQuantity\" : %d,"), ItemQuantity);
 
-		FileArchive->Logf(TEXT("\t\t\t\"attributes\" :"));
-		FileArchive->Logf(TEXT("\t\t\t["));
+		FileWriter->Logf(TEXT("\t\t\t\"attributes\" :"));
+		FileWriter->Logf(TEXT("\t\t\t["));
 		bool bHasWrittenFirstAttr = false;
 		// Write out the list of attributes as an array of attribute objects
 		for (auto Attr : Attributes)
 		{
 			if (bHasWrittenFirstAttr)
 			{
-				FileArchive->Logf(TEXT("\t\t\t,"));
+				FileWriter->Logf(TEXT("\t\t\t,"));
 			}
-			FileArchive->Logf(TEXT("\t\t\t{"));
-			FileArchive->Logf(TEXT("\t\t\t\t\"name\" : \"%s\","), *Attr.GetName());
-			FileArchive->Logf(TEXT("\t\t\t\t\"value\" : \"%s\""), *Attr.GetValue());
-			FileArchive->Logf(TEXT("\t\t\t}"));
+			FileWriter->Logf(TEXT("\t\t\t{"));
+			FileWriter->Logf(TEXT("\t\t\t\t\"name\" : \"%s\","), *Attr.GetName());
+			FileWriter->Logf(TEXT("\t\t\t\t\"value\" : \"%s\""), *Attr.GetValue());
+			FileWriter->Logf(TEXT("\t\t\t}"));
 			bHasWrittenFirstAttr = true;
 		}
-		FileArchive->Logf(TEXT("\t\t\t]"));
+		FileWriter->Logf(TEXT("\t\t\t]"));
 
-		FileArchive->Logf(TEXT("\t\t}"));
+		FileWriter->Logf(TEXT("\t\t}"));
 
 		UE_LOG(LogArcticAnalyticsAnalytics, Display, TEXT("Item purchase id (%s), quantity (%d), number of attributes is (%d)"), *ItemId, ItemQuantity,
 			   Attributes.Num());
@@ -509,38 +540,38 @@ void FAnalyticsProviderArcticAnalytics::RecordCurrencyPurchase(const FString& Ga
 {
 	if (bHasSessionStarted)
 	{
-		check(FileArchive != nullptr);
+		check(FileWriter);
 
 		if (bHasWrittenFirstEvent)
 		{
-			FileArchive->Logf(TEXT("\t\t,"));
+			FileWriter->Logf(TEXT("\t\t,"));
 		}
 		bHasWrittenFirstEvent = true;
 
-		FileArchive->Logf(TEXT("\t\t{"));
-		FileArchive->Logf(TEXT("\t\t\t\"eventType\" : \"CurrencyPurchase\","));
-		FileArchive->Logf(TEXT("\t\t\t\"gameCurrencyType\" : \"%s\","), *GameCurrencyType);
-		FileArchive->Logf(TEXT("\t\t\t\"gameCurrencyAmount\" : %d,"), GameCurrencyAmount);
+		FileWriter->Logf(TEXT("\t\t{"));
+		FileWriter->Logf(TEXT("\t\t\t\"eventType\" : \"CurrencyPurchase\","));
+		FileWriter->Logf(TEXT("\t\t\t\"gameCurrencyType\" : \"%s\","), *GameCurrencyType);
+		FileWriter->Logf(TEXT("\t\t\t\"gameCurrencyAmount\" : %d,"), GameCurrencyAmount);
 
-		FileArchive->Logf(TEXT("\t\t\t\"attributes\" :"));
-		FileArchive->Logf(TEXT("\t\t\t["));
+		FileWriter->Logf(TEXT("\t\t\t\"attributes\" :"));
+		FileWriter->Logf(TEXT("\t\t\t["));
 		bool bHasWrittenFirstAttr = false;
 		// Write out the list of attributes as an array of attribute objects
 		for (auto Attr : Attributes)
 		{
 			if (bHasWrittenFirstAttr)
 			{
-				FileArchive->Logf(TEXT("\t\t\t,"));
+				FileWriter->Logf(TEXT("\t\t\t,"));
 			}
-			FileArchive->Logf(TEXT("\t\t\t{"));
-			FileArchive->Logf(TEXT("\t\t\t\t\"name\" : \"%s\","), *Attr.GetName());
-			FileArchive->Logf(TEXT("\t\t\t\t\"value\" : \"%s\""), *Attr.GetValue());
-			FileArchive->Logf(TEXT("\t\t\t}"));
+			FileWriter->Logf(TEXT("\t\t\t{"));
+			FileWriter->Logf(TEXT("\t\t\t\t\"name\" : \"%s\","), *Attr.GetName());
+			FileWriter->Logf(TEXT("\t\t\t\t\"value\" : \"%s\""), *Attr.GetValue());
+			FileWriter->Logf(TEXT("\t\t\t}"));
 			bHasWrittenFirstAttr = true;
 		}
-		FileArchive->Logf(TEXT("\t\t\t]"));
+		FileWriter->Logf(TEXT("\t\t\t]"));
 
-		FileArchive->Logf(TEXT("\t\t}"));
+		FileWriter->Logf(TEXT("\t\t}"));
 
 		UE_LOG(LogArcticAnalyticsAnalytics, Display, TEXT("Currency purchase type (%s), quantity (%d), number of attributes is (%d)"), *GameCurrencyType,
 			   GameCurrencyAmount, Attributes.Num());
@@ -555,38 +586,38 @@ void FAnalyticsProviderArcticAnalytics::RecordCurrencyGiven(const FString& GameC
 {
 	if (bHasSessionStarted)
 	{
-		check(FileArchive != nullptr);
+		check(FileWriter);
 
 		if (bHasWrittenFirstEvent)
 		{
-			FileArchive->Logf(TEXT("\t\t,"));
+			FileWriter->Logf(TEXT("\t\t,"));
 		}
 		bHasWrittenFirstEvent = true;
 
-		FileArchive->Logf(TEXT("\t\t{"));
-		FileArchive->Logf(TEXT("\t\t\t\"eventType\" : \"CurrencyGiven\","));
-		FileArchive->Logf(TEXT("\t\t\t\"gameCurrencyType\" : \"%s\","), *GameCurrencyType);
-		FileArchive->Logf(TEXT("\t\t\t\"gameCurrencyAmount\" : %d,"), GameCurrencyAmount);
+		FileWriter->Logf(TEXT("\t\t{"));
+		FileWriter->Logf(TEXT("\t\t\t\"eventType\" : \"CurrencyGiven\","));
+		FileWriter->Logf(TEXT("\t\t\t\"gameCurrencyType\" : \"%s\","), *GameCurrencyType);
+		FileWriter->Logf(TEXT("\t\t\t\"gameCurrencyAmount\" : %d,"), GameCurrencyAmount);
 
-		FileArchive->Logf(TEXT("\t\t\t\"attributes\" :"));
-		FileArchive->Logf(TEXT("\t\t\t["));
+		FileWriter->Logf(TEXT("\t\t\t\"attributes\" :"));
+		FileWriter->Logf(TEXT("\t\t\t["));
 		bool bHasWrittenFirstAttr = false;
 		// Write out the list of attributes as an array of attribute objects
 		for (auto Attr : Attributes)
 		{
 			if (bHasWrittenFirstAttr)
 			{
-				FileArchive->Logf(TEXT("\t\t\t,"));
+				FileWriter->Logf(TEXT("\t\t\t,"));
 			}
-			FileArchive->Logf(TEXT("\t\t\t{"));
-			FileArchive->Logf(TEXT("\t\t\t\t\"name\" : \"%s\","), *Attr.GetName());
-			FileArchive->Logf(TEXT("\t\t\t\t\"value\" : \"%s\""), *Attr.GetValue());
-			FileArchive->Logf(TEXT("\t\t\t}"));
+			FileWriter->Logf(TEXT("\t\t\t{"));
+			FileWriter->Logf(TEXT("\t\t\t\t\"name\" : \"%s\","), *Attr.GetName());
+			FileWriter->Logf(TEXT("\t\t\t\t\"value\" : \"%s\""), *Attr.GetValue());
+			FileWriter->Logf(TEXT("\t\t\t}"));
 			bHasWrittenFirstAttr = true;
 		}
-		FileArchive->Logf(TEXT("\t\t\t]"));
+		FileWriter->Logf(TEXT("\t\t\t]"));
 
-		FileArchive->Logf(TEXT("\t\t}"));
+		FileWriter->Logf(TEXT("\t\t}"));
 
 		UE_LOG(LogArcticAnalyticsAnalytics, Display, TEXT("Currency given type (%s), quantity (%d), number of attributes is (%d)"), *GameCurrencyType,
 			   GameCurrencyAmount, Attributes.Num());
