@@ -13,8 +13,6 @@ class Error;
 class FAnalyticsProviderArcticAnalytics : public IAnalyticsProvider
 {
 private:
-	TArray<FAnalyticsEventAttribute> DefaultEventAttributes;
-
 	/** Path where analytics files are saved out */
 	FString AnalyticsFilePath;
 	/** Tracks whether we need to start the session or restart it */
@@ -58,11 +56,6 @@ public:
 	virtual void RecordCurrencyGiven(const FString& GameCurrencyType, int GameCurrencyAmount, const TArray<FAnalyticsEventAttribute>& EventAttrs) override;
 	virtual void RecordError(const FString& Error, const TArray<FAnalyticsEventAttribute>& EventAttrs) override;
 	virtual void RecordProgress(const FString& ProgressType, const FString& ProgressHierarchy, const TArray<FAnalyticsEventAttribute>& EventAttrs) override;
-
-	void SetDefaultEventAttributes(TArray<FAnalyticsEventAttribute>&& Attributes) override;
-	TArray<FAnalyticsEventAttribute> GetDefaultEventAttributesSafe() const override;
-	int32 GetDefaultEventAttributeCount() const override;
-	FAnalyticsEventAttribute GetDefaultEventAttribute(int AttributeIndex) const override;
 
 	void SendDataToServer();
 
